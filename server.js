@@ -59,6 +59,37 @@ app.post("/generate-invitation", verifyApiKey, (req, res) => {
         });
     }
 });
+// Hash an invitation token for server-side validation
+app.post("/hash-invitation-token", verifyApiKey, (req, res) => {
+    try {
+        const { token } = req.body;
+
+        if (!token || !/^[a-fA-F0-9]{64}$/.test(token)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid invitation token"
+            });
+        }
+
+        const tokenHash = crypto
+            .createHash("sha256")
+            .update(token)
+            .digest("hex");
+
+        res.json({
+            success: true,
+            tokenHash
+        });
+
+    } catch (error) {
+        console.error("Token hashing error:", error.message);
+
+        res.status(500).json({
+            success: false,
+            message: "Token hashing failed"
+        });
+    }
+});
 
 // Password hashing
 app.post("/hash-password", verifyApiKey, async (req, res) => {
