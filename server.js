@@ -2,6 +2,7 @@
 const express = require("express");
 const cors = require("cors");
 const argon2 = require("argon2");
+const crypto = require("crypto");
 require("dotenv").config();
 
 const app = express();
@@ -31,6 +32,33 @@ function verifyApiKey(req, res, next) {
 
     next();
 }
+// Generate a secure employee invitation token
+app.post("/generate-invitation", verifyApiKey, (req, res) => {
+    try {
+        // Generate 32 random bytes (256-bit token)
+        const invitationToken = crypto.randomBytes(32).toString("hex");
+
+        // Store only this SHA-256 hash in Oracle
+        const tokenHash = crypto
+            .createHash("sha256")
+            .update(invitationToken)
+            .digest("hex");
+
+        res.json({
+            success: true,
+            invitationToken,
+            tokenHash
+        });
+
+    } catch (error) {
+        console.error("Invitation generation error:", error.message);
+
+        res.status(500).json({
+            success: false,
+            message: "Invitation token generation failed"
+        });
+    }
+});
 
 // Password hashing
 app.post("/hash-password", verifyApiKey, async (req, res) => {
