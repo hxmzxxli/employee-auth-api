@@ -10,7 +10,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Health check
+// ==========================================
+// HEALTH CHECK
+// ==========================================
+
 app.get("/", (req, res) => {
     res.json({
         status: "success",
@@ -18,12 +21,19 @@ app.get("/", (req, res) => {
     });
 });
 
-// API key verification middleware
+// ==========================================
+// API KEY VERIFICATION MIDDLEWARE
+// ==========================================
+
 function verifyApiKey(req, res, next) {
     const apiKey = req.headers["x-api-key"];
 
-    if (!process.env.API_SECRET ||
-        apiKey !== process.env.API_SECRET) {
+    if (
+        !process.env.API_SECRET ||
+        apiKey !== process.env.API_SECRET
+    ) {
+        console.warn("API SECURITY: Unauthorized request rejected");
+
         return res.status(401).json({
             success: false,
             message: "Unauthorized request"
@@ -32,17 +42,25 @@ function verifyApiKey(req, res, next) {
 
     next();
 }
-// Generate a secure employee invitation token
+
+// ==========================================
+// GENERATE EMPLOYEE INVITATION TOKEN
+// ==========================================
+
 app.post("/generate-invitation", verifyApiKey, (req, res) => {
     try {
-        // Generate 32 random bytes (256-bit token)
-        const invitationToken = crypto.randomBytes(32).toString("hex");
+        console.log("INVITATION: Generation request received");
 
-        // Store only this SHA-256 hash in Oracle
+        const invitationToken = crypto
+            .randomBytes(32)
+            .toString("hex");
+
         const tokenHash = crypto
             .createHash("sha256")
             .update(invitationToken)
             .digest("hex");
+
+        console.log("INVITATION: Token generated successfully");
 
         res.json({
             success: true,
@@ -51,7 +69,10 @@ app.post("/generate-invitation", verifyApiKey, (req, res) => {
         });
 
     } catch (error) {
-        console.error("Invitation generation error:", error.message);
+        console.error(
+            "INVITATION ERROR:",
+            error.message
+        );
 
         res.status(500).json({
             success: false,
@@ -59,12 +80,20 @@ app.post("/generate-invitation", verifyApiKey, (req, res) => {
         });
     }
 });
-// Hash an invitation token for server-side validation
+
+// ==========================================
+// HASH INVITATION TOKEN
+// ==========================================
+
 app.post("/hash-invitation-token", verifyApiKey, (req, res) => {
     try {
-        const { token } = req.body;
+        console.log("INVITATION: Token hashing request received");
+
+        const { token } = req.body || {};
 
         if (!token || !/^[a-fA-F0-9]{64}$/.test(token)) {
+            console.warn("INVITATION: Invalid token format");
+
             return res.status(400).json({
                 success: false,
                 message: "Invalid invitation token"
@@ -76,13 +105,18 @@ app.post("/hash-invitation-token", verifyApiKey, (req, res) => {
             .update(token)
             .digest("hex");
 
+        console.log("INVITATION: Token hashed successfully");
+
         res.json({
             success: true,
             tokenHash
         });
 
     } catch (error) {
-        console.error("Token hashing error:", error.message);
+        console.error(
+            "TOKEN HASHING ERROR:",
+            error.message
+        );
 
         res.status(500).json({
             success: false,
@@ -91,12 +125,19 @@ app.post("/hash-invitation-token", verifyApiKey, (req, res) => {
     }
 });
 
-// Password hashing
+// ==========================================
+// HASH EMPLOYEE PASSWORD
+// ==========================================
+
 app.post("/hash-password", verifyApiKey, async (req, res) => {
     try {
-        const { password } = req.body;
+        console.log("PASSWORD HASHING: Request received");
+
+        const { password } = req.body || {};
 
         if (!password || password.length < 12) {
+            console.warn("PASSWORD HASHING: Invalid password input");
+
             return res.status(400).json({
                 success: false,
                 message: "Password must contain at least 12 characters"
@@ -107,13 +148,18 @@ app.post("/hash-password", verifyApiKey, async (req, res) => {
             type: argon2.argon2id
         });
 
+        console.log("PASSWORD HASHING: Completed successfully");
+
         res.json({
             success: true,
             passwordHash
         });
 
     } catch (error) {
-        console.error("Hashing error:", error.message);
+        console.error(
+            "PASSWORD HASHING ERROR:",
+            error.message
+        );
 
         res.status(500).json({
             success: false,
@@ -122,12 +168,23 @@ app.post("/hash-password", verifyApiKey, async (req, res) => {
     }
 });
 
-// Password verification
+// ==========================================
+// VERIFY EMPLOYEE PASSWORD
+// ==========================================
+
 app.post("/verify-password", verifyApiKey, async (req, res) => {
     try {
-        const { password, passwordHash } = req.body;
+        console.log("VERIFY-PASSWORD: Request received");
+
+        const { password, passwordHash } = req.body || {};
+
+        // Check whether both fields were received.
+        console.log("VERIFY-PASSWORD: Password received:", !!password);
+        console.log("VERIFY-PASSWORD: Hash received:", !!passwordHash);
 
         if (!password || !passwordHash) {
+            console.warn("VERIFY-PASSWORD: Required fields missing");
+
             return res.status(400).json({
                 success: false,
                 message: "Password and hash are required"
@@ -139,13 +196,21 @@ app.post("/verify-password", verifyApiKey, async (req, res) => {
             password
         );
 
+        console.log(
+            "VERIFY-PASSWORD: Verification completed:",
+            authenticated
+        );
+
         res.json({
             success: true,
             authenticated
         });
 
     } catch (error) {
-        console.error("Verification error:", error.message);
+        console.error(
+            "VERIFY-PASSWORD ERROR:",
+            error.message
+        );
 
         res.status(400).json({
             success: false,
@@ -154,9 +219,14 @@ app.post("/verify-password", verifyApiKey, async (req, res) => {
     }
 });
 
-// Start server
+// ==========================================
+// START SERVER
+// ==========================================
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Authentication API running on port ${PORT}`);
+    console.log(
+        `Authentication API running on port ${PORT}`
+    );
 });
