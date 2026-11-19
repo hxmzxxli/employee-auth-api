@@ -1,11 +1,15 @@
 
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const argon2 = require("argon2");
 const crypto = require("crypto");
-require("dotenv").config();
+const { Resend } = require("resend");
 
 const app = express();
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 app.use(cors());
 app.use(express.json());
@@ -69,10 +73,7 @@ app.post("/generate-invitation", verifyApiKey, (req, res) => {
         });
 
     } catch (error) {
-        console.error(
-            "INVITATION ERROR:",
-            error.message
-        );
+        console.error("INVITATION ERROR:", error.message);
 
         res.status(500).json({
             success: false,
@@ -113,10 +114,7 @@ app.post("/hash-invitation-token", verifyApiKey, (req, res) => {
         });
 
     } catch (error) {
-        console.error(
-            "TOKEN HASHING ERROR:",
-            error.message
-        );
+        console.error("TOKEN HASHING ERROR:", error.message);
 
         res.status(500).json({
             success: false,
@@ -135,9 +133,10 @@ app.post("/hash-password", verifyApiKey, async (req, res) => {
 
         const { password } = req.body || {};
 
-        if (!password || password.length < 12) {
-            console.warn("PASSWORD HASHING: Invalid password input");
-
+        if (
+            typeof password !== "string" ||
+            password.length < 12
+        ) {
             return res.status(400).json({
                 success: false,
                 message: "Password must contain at least 12 characters"
@@ -156,10 +155,7 @@ app.post("/hash-password", verifyApiKey, async (req, res) => {
         });
 
     } catch (error) {
-        console.error(
-            "PASSWORD HASHING ERROR:",
-            error.message
-        );
+        console.error("PASSWORD HASHING ERROR:", error.message);
 
         res.status(500).json({
             success: false,
@@ -178,13 +174,15 @@ app.post("/verify-password", verifyApiKey, async (req, res) => {
 
         const { password, passwordHash } = req.body || {};
 
-        // Check whether both fields were received.
         console.log("VERIFY-PASSWORD: Password received:", !!password);
         console.log("VERIFY-PASSWORD: Hash received:", !!passwordHash);
 
-        if (!password || !passwordHash) {
-            console.warn("VERIFY-PASSWORD: Required fields missing");
-
+        if (
+            typeof password !== "string" ||
+            typeof passwordHash !== "string" ||
+            !password ||
+            !passwordHash
+        ) {
             return res.status(400).json({
                 success: false,
                 message: "Password and hash are required"
@@ -207,14 +205,194 @@ app.post("/verify-password", verifyApiKey, async (req, res) => {
         });
 
     } catch (error) {
-        console.error(
-            "VERIFY-PASSWORD ERROR:",
-            error.message
-        );
+        console.error("VERIFY-PASSWORD ERROR:", error.message);
 
         res.status(400).json({
             success: false,
             message: "Password verification failed"
+        });
+    }
+});
+
+// ==========================================
+// HTML ESCAPING HELPER
+// ==========================================
+
+function escapeHtml(value) {
+    return String(value || "").replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+    })[char]);
+}
+
+// ==========================================
+// SEND EMPLOYEE INVITATION EMAIL
+// ==========================================
+
+app.post("/send-invitation", verifyApiKey, async (req, res) => {
+    try {
+        console.log("EMAIL: Invitation request received");
+
+        const {
+            email,
+            invitationUrl,
+            employeeName
+        } = req.body || {};
+
+        // Validate required fields
+
+        if (!email || !invitationUrl) {
+            return res.status(400).json({
+                success: false,
+                message: "Email and invitation URL are required"
+            });
+        }
+
+        // Validate email address
+
+        const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+        if (
+            typeof email !== "string" ||
+            !emailPattern.test(email)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid email address"
+            });
+        }
+
+        // Validate invitation URL
+
+        let parsedUrl;
+
+        try {
+            parsedUrl = new URL(invitationUrl);
+
+            if (parsedUrl.protocol !== "https:") {
+                throw new Error("HTTPS required");
+            }
+
+        } catch {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid invitation URL"
+            });
+        }
+
+        // Prepare safe HTML values
+
+        const safeName = escapeHtml(employeeName || "Employee");
+        const safeUrl = escapeHtml(invitationUrl);
+
+        // Send email using Resend
+
+        const { data, error } = await resend.emails.send({
+
+            from: "Employee Management <onboarding@resend.dev>",
+
+            to: [email],
+
+            subject: "Your Employee Account Invitation",
+
+            html: `
+                <!DOCTYPE html>
+                <html>
+                <body style="
+                    font-family: Arial, sans-serif;
+                    background-color: #f4f6f9;
+                    padding: 30px;
+                    color: #333;
+                ">
+
+                    <div style="
+                        max-width: 550px;
+                        margin: auto;
+                        background: white;
+                        padding: 30px;
+                        border-radius: 10px;
+                    ">
+
+                        <h2 style="color: #2563eb;">
+                            Welcome, ${safeName}!
+                        </h2>
+
+                        <p>
+                            Your employee account has been created.
+                        </p>
+
+                        <p>
+                            Please click the button below
+                            to set up your password.
+                        </p>
+
+                        <div style="margin: 30px 0;">
+
+                            <a href="${safeUrl}"
+                               style="
+                                   background-color: #2563eb;
+                                   color: white;
+                                   padding: 14px 24px;
+                                   text-decoration: none;
+                                   border-radius: 6px;
+                                   display: inline-block;
+                                   font-weight: bold;
+                               ">
+                                Set Up Your Account
+                            </a>
+
+                        </div>
+
+                        <p style="font-size: 14px; color: #666;">
+                            This invitation expires in 24 hours
+                            and can only be used once.
+                        </p>
+
+                        <hr style="
+                            border: none;
+                            border-top: 1px solid #eee;
+                        ">
+
+                        <p style="font-size: 13px; color: #888;">
+                            Regards,<br>
+                            Employee Management Team
+                        </p>
+
+                    </div>
+
+                </body>
+                </html>
+            `
+        });
+
+        // Handle Resend errors
+
+        if (error) {
+            console.error("RESEND ERROR:", error);
+
+            return res.status(500).json({
+                success: false,
+                message: "Email delivery failed"
+            });
+        }
+
+        console.log("EMAIL: Invitation sent successfully:", data.id);
+
+        return res.json({
+            success: true,
+            message: "Invitation email sent successfully",
+            id: data.id
+        });
+
+    } catch (error) {
+        console.error("EMAIL ERROR:", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
         });
     }
 });
