@@ -1,4 +1,3 @@
-
 require("dotenv").config();
 
 const express = require("express");
@@ -10,6 +9,11 @@ const { Resend } = require("resend");
 const app = express();
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+// Falls back to Resend's test sender (delivers only to your own Resend email)
+const MAIL_FROM = process.env.MAIL_FROM || "Employee Management <onboarding@resend.dev>";
+// Only links to this host may be emailed
+const ALLOWED_LINK_HOST = process.env.ALLOWED_LINK_HOST || "oracleapex.com";
 
 app.use(cors());
 app.use(express.json());
@@ -32,10 +36,7 @@ app.get("/", (req, res) => {
 function verifyApiKey(req, res, next) {
     const apiKey = req.headers["x-api-key"];
 
-    if (
-        !process.env.API_SECRET ||
-        apiKey !== process.env.API_SECRET
-    ) {
+    if (!process.env.API_SECRET || apiKey !== process.env.API_SECRET) {
         console.warn("API SECURITY: Unauthorized request rejected");
 
         return res.status(401).json({
@@ -55,9 +56,7 @@ app.post("/generate-invitation", verifyApiKey, (req, res) => {
     try {
         console.log("INVITATION: Generation request received");
 
-        const invitationToken = crypto
-            .randomBytes(32)
-            .toString("hex");
+        const invitationToken = crypto.randomBytes(32).toString("hex");
 
         const tokenHash = crypto
             .createHash("sha256")
@@ -66,15 +65,10 @@ app.post("/generate-invitation", verifyApiKey, (req, res) => {
 
         console.log("INVITATION: Token generated successfully");
 
-        res.json({
-            success: true,
-            invitationToken,
-            tokenHash
-        });
+        res.json({ success: true, invitationToken, tokenHash });
 
     } catch (error) {
         console.error("INVITATION ERROR:", error.message);
-
         res.status(500).json({
             success: false,
             message: "Invitation token generation failed"
@@ -94,7 +88,6 @@ app.post("/hash-invitation-token", verifyApiKey, (req, res) => {
 
         if (!token || !/^[a-fA-F0-9]{64}$/.test(token)) {
             console.warn("INVITATION: Invalid token format");
-
             return res.status(400).json({
                 success: false,
                 message: "Invalid invitation token"
@@ -108,14 +101,10 @@ app.post("/hash-invitation-token", verifyApiKey, (req, res) => {
 
         console.log("INVITATION: Token hashed successfully");
 
-        res.json({
-            success: true,
-            tokenHash
-        });
+        res.json({ success: true, tokenHash });
 
     } catch (error) {
         console.error("TOKEN HASHING ERROR:", error.message);
-
         res.status(500).json({
             success: false,
             message: "Token hashing failed"
@@ -133,10 +122,7 @@ app.post("/hash-password", verifyApiKey, async (req, res) => {
 
         const { password } = req.body || {};
 
-        if (
-            typeof password !== "string" ||
-            password.length < 12
-        ) {
+        if (typeof password !== "string" || password.length < 12) {
             return res.status(400).json({
                 success: false,
                 message: "Password must contain at least 12 characters"
@@ -149,14 +135,10 @@ app.post("/hash-password", verifyApiKey, async (req, res) => {
 
         console.log("PASSWORD HASHING: Completed successfully");
 
-        res.json({
-            success: true,
-            passwordHash
-        });
+        res.json({ success: true, passwordHash });
 
     } catch (error) {
         console.error("PASSWORD HASHING ERROR:", error.message);
-
         res.status(500).json({
             success: false,
             message: "Password hashing failed"
@@ -174,9 +156,6 @@ app.post("/verify-password", verifyApiKey, async (req, res) => {
 
         const { password, passwordHash } = req.body || {};
 
-        console.log("VERIFY-PASSWORD: Password received:", !!password);
-        console.log("VERIFY-PASSWORD: Hash received:", !!passwordHash);
-
         if (
             typeof password !== "string" ||
             typeof passwordHash !== "string" ||
@@ -189,24 +168,14 @@ app.post("/verify-password", verifyApiKey, async (req, res) => {
             });
         }
 
-        const authenticated = await argon2.verify(
-            passwordHash,
-            password
-        );
+        const authenticated = await argon2.verify(passwordHash, password);
 
-        console.log(
-            "VERIFY-PASSWORD: Verification completed:",
-            authenticated
-        );
+        console.log("VERIFY-PASSWORD: Verification completed:", authenticated);
 
-        res.json({
-            success: true,
-            authenticated
-        });
+        res.json({ success: true, authenticated });
 
     } catch (error) {
         console.error("VERIFY-PASSWORD ERROR:", error.message);
-
         res.status(400).json({
             success: false,
             message: "Password verification failed"
@@ -236,13 +205,7 @@ app.post("/send-invitation", verifyApiKey, async (req, res) => {
     try {
         console.log("EMAIL: Invitation request received");
 
-        const {
-            email,
-            invitationUrl,
-            employeeName
-        } = req.body || {};
-
-        // Validate required fields
+        const { email, invitationUrl, employeeName, replyTo } = req.body || {};
 
         if (!email || !invitationUrl) {
             return res.status(400).json({
@@ -251,31 +214,25 @@ app.post("/send-invitation", verifyApiKey, async (req, res) => {
             });
         }
 
-        // Validate email address
-
         const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-        if (
-            typeof email !== "string" ||
-            !emailPattern.test(email)
-        ) {
+        if (typeof email !== "string" || !emailPattern.test(email)) {
             return res.status(400).json({
                 success: false,
                 message: "Invalid email address"
             });
         }
 
-        // Validate invitation URL
-
-        let parsedUrl;
-
+        // The link must be HTTPS and point to your own APEX host
         try {
-            parsedUrl = new URL(invitationUrl);
+            const parsedUrl = new URL(invitationUrl);
 
-            if (parsedUrl.protocol !== "https:") {
-                throw new Error("HTTPS required");
+            if (
+                parsedUrl.protocol !== "https:" ||
+                parsedUrl.hostname !== ALLOWED_LINK_HOST
+            ) {
+                throw new Error("Link not allowed");
             }
-
         } catch {
             return res.status(400).json({
                 success: false,
@@ -283,82 +240,61 @@ app.post("/send-invitation", verifyApiKey, async (req, res) => {
             });
         }
 
-        // Prepare safe HTML values
-
         const safeName = escapeHtml(employeeName || "Employee");
         const safeUrl = escapeHtml(invitationUrl);
 
-        // Send email using Resend
+        const validReplyTo =
+            typeof replyTo === "string" && emailPattern.test(replyTo)
+                ? replyTo
+                : undefined;
 
         const { data, error } = await resend.emails.send({
 
-            from: "Employee Management <onboarding@resend.dev>",
-
+            from: MAIL_FROM,
             to: [email],
-
+            replyTo: validReplyTo,
             subject: "Your Employee Account Invitation",
+
+            text:
+`Welcome, ${employeeName || "Employee"}!
+
+Your employee account has been created. Use this link to set your password.
+It works once and expires in 72 hours:
+
+${invitationUrl}
+
+If you did not expect this email, ignore it.`,
 
             html: `
                 <!DOCTYPE html>
                 <html>
-                <body style="
-                    font-family: Arial, sans-serif;
-                    background-color: #f4f6f9;
-                    padding: 30px;
-                    color: #333;
-                ">
+                <body style="font-family: Arial, sans-serif; background-color: #f4f6f9; padding: 30px; color: #333;">
 
-                    <div style="
-                        max-width: 550px;
-                        margin: auto;
-                        background: white;
-                        padding: 30px;
-                        border-radius: 10px;
-                    ">
+                    <div style="max-width: 550px; margin: auto; background: white; padding: 30px; border-radius: 10px;">
 
-                        <h2 style="color: #2563eb;">
-                            Welcome, ${safeName}!
-                        </h2>
+                        <h2 style="color: #2563eb;">Welcome, ${safeName}!</h2>
 
-                        <p>
-                            Your employee account has been created.
-                        </p>
+                        <p>Your employee account has been created.</p>
 
-                        <p>
-                            Please click the button below
-                            to set up your password.
-                        </p>
+                        <p>Please click the button below to set up your password.</p>
 
                         <div style="margin: 30px 0;">
-
                             <a href="${safeUrl}"
-                               style="
-                                   background-color: #2563eb;
-                                   color: white;
-                                   padding: 14px 24px;
-                                   text-decoration: none;
-                                   border-radius: 6px;
-                                   display: inline-block;
-                                   font-weight: bold;
-                               ">
+                               style="background-color: #2563eb; color: white; padding: 14px 24px;
+                                      text-decoration: none; border-radius: 6px;
+                                      display: inline-block; font-weight: bold;">
                                 Set Up Your Account
                             </a>
-
                         </div>
 
                         <p style="font-size: 14px; color: #666;">
-                            This invitation expires in 24 hours
-                            and can only be used once.
+                            This invitation expires in 72 hours and can only be used once.
                         </p>
 
-                        <hr style="
-                            border: none;
-                            border-top: 1px solid #eee;
-                        ">
+                        <hr style="border: none; border-top: 1px solid #eee;">
 
                         <p style="font-size: 13px; color: #888;">
-                            Regards,<br>
-                            Employee Management Team
+                            Regards,<br>Employee Management Team
                         </p>
 
                     </div>
@@ -368,11 +304,8 @@ app.post("/send-invitation", verifyApiKey, async (req, res) => {
             `
         });
 
-        // Handle Resend errors
-
         if (error) {
             console.error("RESEND ERROR:", error);
-
             return res.status(500).json({
                 success: false,
                 message: "Email delivery failed"
@@ -389,7 +322,6 @@ app.post("/send-invitation", verifyApiKey, async (req, res) => {
 
     } catch (error) {
         console.error("EMAIL ERROR:", error.message);
-
         return res.status(500).json({
             success: false,
             message: "Internal server error"
@@ -404,7 +336,5 @@ app.post("/send-invitation", verifyApiKey, async (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(
-        `Authentication API running on port ${PORT}`
-    );
+    console.log(`Authentication API running on port ${PORT}`);
 });
